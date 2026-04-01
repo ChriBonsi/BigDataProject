@@ -1,6 +1,7 @@
 import os
 import requests
 from sqlalchemy import create_engine, text
+from datetime import datetime
 
 DB_URL = os.getenv("DATABASE_URL")
 engine = create_engine(DB_URL)
@@ -9,14 +10,17 @@ MODEL_PRICING = {
     "gpt-4.1": {"input": 0.01 / 1000, "output": 0.03 / 1000},
     "gpt-4o": {"input": 0.005 / 1000, "output": 0.015 / 1000},
     "gpt-3.5-turbo": {"input": 0.002 / 1000, "output": 0.004 / 1000},
-    # TODO: Add more models
 }
 
 def fetch_data():
     api_url = os.getenv("API_ENDPOINT", "https://api.com/data")
-    response = requests.get(api_url)
-    if response.status_code == 200:
-        return response.json()
+    # Simulation of the provided JSON structure
+    try:
+        response = requests.get(api_url)
+        if response.status_code == 200:
+            return response.json()
+    except Exception:
+        return None
     return None
 
 def calculate_cost(models, input_tokens, output_tokens):
@@ -44,6 +48,7 @@ def save_to_db(data):
     in_cost, out_cost, total_cost = calculate_cost(models, in_tokens, out_tokens)
 
     with engine.begin() as conn:
+        # Create tables
         conn.execute(text("""
             CREATE TABLE IF NOT EXISTS api_sessions (
                 session_id VARCHAR(100) PRIMARY KEY,
@@ -53,12 +58,21 @@ def save_to_db(data):
                 total_output_tokens INT,
                 total_duration_ms INT,
                 models_used TEXT,
-                input_cost_usd NUMERIC(10, 6),
-                output_cost_usd NUMERIC(10, 6),
-                total_cost_usd NUMERIC(10, 6)
-            )
+                input_cost_usd NUMERIC(12, 6),
+                output_cost_usd NUMERIC(12, 6),
+                total_cost_usd NUMERIC(12, 6)
+            );
+            
+            CREATE TABLE IF NOT EXISTS token_usage_history (
+                id SERIAL PRIMARY KEY,
+                session_id VARCHAR(100),
+                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                incremental_input_tokens INT,
+                incremental_output_tokens INT
+            );
         """))
         
+        # Update or Insert session summary
         conn.execute(
             text("""
                 INSERT INTO api_sessions (
@@ -73,7 +87,10 @@ def save_to_db(data):
                 ON CONFLICT (session_id) DO UPDATE SET
                     status = EXCLUDED.status,
                     total_calls = EXCLUDED.total_calls,
-                    total_duration_ms = EXCLUDED.total_duration_ms
+                    total_input_tokens = EXCLUDED.total_input_tokens,
+                    total_output_tokens = EXCLUDED.total_output_tokens,
+                    total_duration_ms = EXCLUDED.total_duration_ms,
+                    total_cost_usd = EXCLUDED.total_cost_usd;
             """),
             {
                 "session_id": data.get("session_id"),
@@ -89,6 +106,20 @@ def save_to_db(data):
             }
         )
 
+        # Record incremental usage in history table
+        conn.execute(
+            text("""
+                INSERT INTO token_usage_history (session_id, incremental_input_tokens, incremental_output_tokens)
+                VALUES (:session_id, :in_tokens, :out_tokens)
+            """),
+            {
+                "session_id": data.get("session_id"),
+                "in_tokens": in_tokens,
+                "out_tokens": out_tokens
+            }
+        )
+
 if __name__ == "__main__":
     data = fetch_data()
-    save_to_db(data)
+    if data:
+        save_to_db(data)
