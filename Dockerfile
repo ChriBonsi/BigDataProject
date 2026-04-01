@@ -1,10 +1,16 @@
 FROM python:3.11-slim
 
+RUN apt-get update && apt-get install -y libpq-dev gcc && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY fetch_and_update.py .
+COPY seed_db.py .
+COPY entrypoint.sh .
 
-CMD ["tail", "-f", "/dev/null"]
+RUN chmod +x entrypoint.sh
+
+ENTRYPOINT ["./entrypoint.sh"]
