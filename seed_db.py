@@ -2,109 +2,177 @@ import os
 import random
 import uuid
 from sqlalchemy import create_engine, text
+from datetime import datetime
 
 DB_URL = os.getenv("DATABASE_URL")
 engine = create_engine(DB_URL)
 
-MODEL_PRICING = {
-    "gpt-4.1": {"input": 0.01 / 1000, "output": 0.03 / 1000},
-    "gpt-4o": {"input": 0.005 / 1000, "output": 0.015 / 1000},
-    "gpt-3.5-turbo": {"input": 0.002 / 1000, "output": 0.004 / 1000},
-}
-
 def generate_fake_data(num_sessions=10):
-    models = list(MODEL_PRICING.keys())
-    sessions = []
+    call_types = ["question_generation", "report_generation", "topic_importance_extraction", "idq_c2_coherence"]
+    models = ["gpt-4.1-2025-04-14", "gpt-5.2-2025-12-11"]
+    conversations = []
+    
+    call_id_counter = random.randint(1000, 5000)
     
     for _ in range(num_sessions):
-        s_id = f"screening_{uuid.uuid4().hex[:12]}"
-        model = [random.choice(models)]
+        conv_id = f"conv_{uuid.uuid4().hex[:16]}"
+        user_id = f"user_{random.randint(100, 999)}"
+        updated_at = datetime.now().isoformat()
         
-        # Incremental steps for history
-        steps = random.randint(2, 5)
-        current_in = 0
-        current_out = 0
+        num_calls = random.randint(2, 8)
+        total_in = 0
+        total_out = 0
+        total_cost = 0.0
+        total_duration = 0
+        mods_used = set()
+        calls = []
         
-        for i in range(steps):
-            inc_in = random.randint(500, 2000)
-            inc_out = random.randint(200, 800)
-            current_in += inc_in
-            current_out += inc_out
+        for _ in range(num_calls):
+            mod = random.choice(models)
+            mods_used.add(mod)
+            c_type = random.choice(call_types)
+            c_in = random.randint(300, 4000)
+            c_out = random.randint(30, 800)
+            dur = random.randint(800, 5000)
             
-            sessions.append({
-                "session_id": s_id,
-                "status": "completed" if i == steps - 1 else "in_progress",
-                "statistics": {
-                    "total_calls": i + 1,
-                    "total_input_tokens": current_in,
-                    "total_output_tokens": current_out,
-                    "total_duration_ms": random.randint(10000, 90000),
-                    "models_used": model
-                }
+            cost = (c_in * 0.005 / 1000) + (c_out * 0.015 / 1000)
+            
+            calls.append({
+                "id": call_id_counter,
+                "call_type": c_type,
+                "llm_model": mod,
+                "input_tokens": c_in,
+                "output_tokens": c_out,
+                "cost_usd": cost,
+                "called_at": datetime.utcnow().isoformat()
             })
-    return sessions
-
-def calculate_cost(models, input_tokens, output_tokens):
-    primary_model = models[0]
-    rates = MODEL_PRICING.get(primary_model, {"input": 0.0, "output": 0.0})
-    in_cost = input_tokens * rates["input"]
-    out_cost = output_tokens * rates["output"]
-    return in_cost, out_cost, in_cost + out_cost
+            call_id_counter += 1
+            
+            total_in += c_in
+            total_out += c_out
+            total_cost += cost
+            total_duration += dur
+            
+        conversations.append({
+            "conversation_id": conv_id,
+            "user_id": user_id,
+            "updated_at": updated_at,
+            "llm_statistics": {
+                "total_calls": num_calls,
+                "total_input_tokens": total_in,
+                "total_output_tokens": total_out,
+                "total_duration_ms": total_duration,
+                "models_used": list(mods_used),
+                "total_cost_usd": total_cost
+            },
+            "llm_calls": calls
+        })
+        
+    return conversations
 
 def run_seed():
     data_list = generate_fake_data()
     
     with engine.begin() as conn:
-        # Create Tables
         conn.execute(text("""
             CREATE TABLE IF NOT EXISTS api_sessions (
-                session_id VARCHAR(100) PRIMARY KEY,
-                status VARCHAR(50),
+                conv_id VARCHAR(100) PRIMARY KEY,
+                user_id VARCHAR(100),
                 total_calls INT,
                 total_input_tokens INT,
                 total_output_tokens INT,
                 total_duration_ms INT,
                 models_used TEXT,
-                input_cost_usd NUMERIC(12, 6),
-                output_cost_usd NUMERIC(12, 6),
-                total_cost_usd NUMERIC(12, 6)
+                total_cost_usd NUMERIC(12, 6),
+                updated_at TIMESTAMP
             );
+            
             CREATE TABLE IF NOT EXISTS token_usage_history (
                 id SERIAL PRIMARY KEY,
-                session_id VARCHAR(100),
+                conv_id VARCHAR(100),
                 timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 incremental_input_tokens INT,
                 incremental_output_tokens INT
             );
+
+            CREATE TABLE IF NOT EXISTS llm_calls (
+                call_id INT PRIMARY KEY,
+                conv_id VARCHAR(100),
+                call_type VARCHAR(100),
+                model VARCHAR(100),
+                input_tokens INT,
+                output_tokens INT,
+                cost_usd NUMERIC(12, 6),
+                called_at TIMESTAMP
+            );
         """))
 
         for data in data_list:
-            stats = data["statistics"]
-            m = stats["models_used"]
-            in_t, out_t = stats["total_input_tokens"], stats["total_output_tokens"]
-            in_c, out_c, tot_c = calculate_cost(m, in_t, out_t)
+            stats = data["llm_statistics"]
+            conv_id = data["conversation_id"]
+            user_id = data["user_id"]
+            updated_at_str = data["updated_at"]
 
-            # Update session summary
-            conn.execute(text("""
-                INSERT INTO api_sessions (session_id, status, total_calls, total_input_tokens, 
-                    total_output_tokens, total_duration_ms, models_used, input_cost_usd, 
-                    output_cost_usd, total_cost_usd)
-                VALUES (:sid, :st, :tc, :it, :ot, :dur, :mods, :ic, :oc, :total)
-                ON CONFLICT (session_id) DO UPDATE SET 
-                    total_input_tokens = EXCLUDED.total_input_tokens,
-                    total_output_tokens = EXCLUDED.total_output_tokens,
-                    total_cost_usd = EXCLUDED.total_cost_usd;
-            """), {"sid": data["session_id"], "st": data["status"], "tc": stats["total_calls"], 
-                   "it": in_t, "ot": out_t, "dur": stats["total_duration_ms"], 
-                   "mods": ",".join(m), "ic": in_c, "oc": out_c, "total": tot_c})
+            conn.execute(
+                text("""
+                    INSERT INTO api_sessions (
+                        conv_id, user_id, total_calls, total_input_tokens, 
+                        total_output_tokens, total_duration_ms, models_used, 
+                        total_cost_usd, updated_at
+                    ) VALUES (
+                        :conv_id, :user_id, :total_calls, :in_tokens, 
+                        :out_tokens, :duration, :models, :total_cost, :updated_at
+                    )
+                    ON CONFLICT (conv_id) DO UPDATE SET
+                        total_calls = EXCLUDED.total_calls,
+                        total_input_tokens = EXCLUDED.total_input_tokens,
+                        total_output_tokens = EXCLUDED.total_output_tokens,
+                        total_duration_ms = EXCLUDED.total_duration_ms,
+                        total_cost_usd = EXCLUDED.total_cost_usd,
+                        updated_at = EXCLUDED.updated_at;
+                """),
+                {
+                    "conv_id": conv_id,
+                    "user_id": user_id,
+                    "total_calls": stats.get("total_calls"),
+                    "in_tokens": stats.get("total_input_tokens"),
+                    "out_tokens": stats.get("total_output_tokens"),
+                    "duration": stats.get("total_duration_ms"),
+                    "models": ",".join(stats.get("models_used", [])),
+                    "total_cost": stats.get("total_cost_usd"),
+                    "updated_at": updated_at_str
+                }
+            )
 
-            # Add to history
-            conn.execute(text("""
-                INSERT INTO token_usage_history (session_id, incremental_input_tokens, incremental_output_tokens)
-                VALUES (:sid, :it, :ot)
-            """), {"sid": data["session_id"], "it": in_t, "ot": out_t})
+            conn.execute(
+                text("""
+                    INSERT INTO token_usage_history (conv_id, incremental_input_tokens, incremental_output_tokens)
+                    VALUES (:conv_id, :in_tokens, :out_tokens)
+                """),
+                {"conv_id": conv_id, "in_tokens": stats.get("total_input_tokens"), "out_tokens": stats.get("total_output_tokens")}
+            )
 
-    print(f"Seed completato con successo: {len(data_list)} record inseriti.")
+            for call in data.get("llm_calls", []):
+                conn.execute(
+                    text("""
+                        INSERT INTO llm_calls (
+                            call_id, conv_id, call_type, model, 
+                            input_tokens, output_tokens, cost_usd, called_at
+                        ) VALUES (
+                            :cid, :conv_id, :ctype, :mod, :it, :ot, :cost, :dat
+                        ) ON CONFLICT (call_id) DO NOTHING;
+                    """),
+                    {
+                        "cid": call.get("id"),
+                        "conv_id": conv_id,
+                        "ctype": call.get("call_type"),
+                        "mod": call.get("llm_model"),
+                        "it": call.get("input_tokens"),
+                        "ot": call.get("output_tokens"),
+                        "cost": call.get("cost_usd"),
+                        "dat": call.get("called_at")
+                    }
+                )
 
 if __name__ == "__main__":
     run_seed()
