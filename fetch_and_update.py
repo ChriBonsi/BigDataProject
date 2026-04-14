@@ -27,7 +27,7 @@ def fetch_conversation_detail(conversation_id):
         return None
     return None
 
-def save_to_db(data, updated_at_str):
+def save_to_db(data, updated_at_str, user_id):
     if not data:
         return
 
@@ -40,12 +40,11 @@ def save_to_db(data, updated_at_str):
     out_tokens = stats.get("total_output_tokens", 0)
     total_cost = stats.get("total_cost_usd", 0.0)
     duration = stats.get("total_duration_ms", 0)
-    user_id = "user_placeholder_123"
 
     with engine.begin() as conn:
         conn.execute(text("""
             CREATE TABLE IF NOT EXISTS api_sessions (
-                session_id VARCHAR(100) PRIMARY KEY,
+                conv_id VARCHAR(100) PRIMARY KEY,
                 user_id VARCHAR(100),
                 total_calls INT,
                 total_input_tokens INT,
@@ -58,7 +57,7 @@ def save_to_db(data, updated_at_str):
             
             CREATE TABLE IF NOT EXISTS token_usage_history (
                 id SERIAL PRIMARY KEY,
-                session_id VARCHAR(100),
+                conv_id VARCHAR(100),
                 timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 incremental_input_tokens INT,
                 incremental_output_tokens INT
@@ -66,7 +65,7 @@ def save_to_db(data, updated_at_str):
 
             CREATE TABLE IF NOT EXISTS llm_calls (
                 call_id INT PRIMARY KEY,
-                session_id VARCHAR(100),
+                conv_id VARCHAR(100),
                 call_type VARCHAR(100),
                 model VARCHAR(100),
                 input_tokens INT,
@@ -79,14 +78,14 @@ def save_to_db(data, updated_at_str):
         conn.execute(
             text("""
                 INSERT INTO api_sessions (
-                    session_id, user_id, total_calls, total_input_tokens, 
+                    conv_id, user_id, total_calls, total_input_tokens, 
                     total_output_tokens, total_duration_ms, models_used, 
                     total_cost_usd, updated_at
                 ) VALUES (
-                    :session_id, :user_id, :total_calls, :in_tokens, 
+                    :conv_id, :user_id, :total_calls, :in_tokens, 
                     :out_tokens, :duration, :models, :total_cost, :updated_at
                 )
-                ON CONFLICT (session_id) DO UPDATE SET
+                ON CONFLICT (conv_id) DO UPDATE SET
                     total_calls = EXCLUDED.total_calls,
                     total_input_tokens = EXCLUDED.total_input_tokens,
                     total_output_tokens = EXCLUDED.total_output_tokens,
@@ -95,7 +94,7 @@ def save_to_db(data, updated_at_str):
                     updated_at = EXCLUDED.updated_at;
             """),
             {
-                "session_id": conv_id,
+                "conv_id": conv_id,
                 "user_id": user_id,
                 "total_calls": stats.get("total_calls"),
                 "in_tokens": in_tokens,
@@ -109,25 +108,25 @@ def save_to_db(data, updated_at_str):
 
         conn.execute(
             text("""
-                INSERT INTO token_usage_history (session_id, incremental_input_tokens, incremental_output_tokens)
-                VALUES (:session_id, :in_tokens, :out_tokens)
+                INSERT INTO token_usage_history (conv_id, incremental_input_tokens, incremental_output_tokens)
+                VALUES (:conv_id, :in_tokens, :out_tokens)
             """),
-            {"session_id": conv_id, "in_tokens": in_tokens, "out_tokens": out_tokens}
+            {"conv_id": conv_id, "in_tokens": in_tokens, "out_tokens": out_tokens}
         )
 
         for call in calls:
             conn.execute(
                 text("""
                     INSERT INTO llm_calls (
-                        call_id, session_id, call_type, model, 
+                        call_id, conv_id, call_type, model, 
                         input_tokens, output_tokens, cost_usd, called_at
                     ) VALUES (
-                        :cid, :sid, :ctype, :mod, :it, :ot, :cost, :dat
+                        :cid, :cid, :ctype, :mod, :it, :ot, :cost, :dat
                     ) ON CONFLICT (call_id) DO NOTHING;
                 """),
                 {
                     "cid": call.get("id"),
-                    "sid": conv_id,
+                    "cid": conv_id,
                     "ctype": call.get("call_type"),
                     "mod": call.get("llm_model"),
                     "it": call.get("input_tokens"),
@@ -144,12 +143,13 @@ def sync_conversations():
 
     with engine.connect() as conn:
         for conv in conversations:
+            user_id = conv.get("user_id", "Null")
             conv_id = conv.get("conversation_id")
             api_updated_at = conv.get("updated_at")
 
             result = conn.execute(
-                text("SELECT updated_at FROM api_sessions WHERE session_id = :sid"),
-                {"sid": conv_id}
+                text("SELECT updated_at FROM api_sessions WHERE conv_id = :cid"),
+                {"cid": conv_id}
             ).fetchone()
 
             needs_fetch = False
@@ -163,7 +163,7 @@ def sync_conversations():
             if needs_fetch:
                 detail_data = fetch_conversation_detail(conv_id)
                 if detail_data:
-                    save_to_db(detail_data, api_updated_at)
+                    save_to_db(detail_data, api_updated_at, user_id)
 
 if __name__ == "__main__":
     sync_conversations()
