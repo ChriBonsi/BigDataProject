@@ -4,17 +4,21 @@ from sqlalchemy import create_engine, text
 from datetime import datetime
 
 DB_URL = os.getenv("DATABASE_URL")
+API_BASE_URL = "http://34.241.168.124:8000/api/v1/"
 engine = create_engine(DB_URL)
 
-MODEL_PRICING = {
-    "gpt-4.1": {"input": 0.01 / 1000, "output": 0.03 / 1000},
-    "gpt-4o": {"input": 0.005 / 1000, "output": 0.015 / 1000},
-    "gpt-3.5-turbo": {"input": 0.002 / 1000, "output": 0.004 / 1000},
-}
+def fetch_conversation_list():
+    api_url = f"{API_BASE_URL}conversations?limit=50&offset=0"
+    try:
+        response = requests.get(api_url)
+        if response.status_code == 200:
+            return response.json().get("conversations", [])
+    except Exception:
+        return []
+    return []
 
-def fetch_data():
-    api_url = os.getenv("API_ENDPOINT", "https://api.com/data")
-    # Simulation of the provided JSON structure
+def fetch_conversation_detail(conversation_id):
+    api_url = f"{API_BASE_URL}conversations/{conversation_id}"
     try:
         response = requests.get(api_url)
         if response.status_code == 200:
@@ -23,44 +27,33 @@ def fetch_data():
         return None
     return None
 
-def calculate_cost(models, input_tokens, output_tokens):
-    if not models:
-        return 0.0, 0.0, 0.0
-    
-    primary_model = models[0]
-    rates = MODEL_PRICING.get(primary_model, {"input": 0.0, "output": 0.0})
-    
-    input_cost = input_tokens * rates["input"]
-    output_cost = output_tokens * rates["output"]
-    total_cost = input_cost + output_cost
-    
-    return input_cost, output_cost, total_cost
-
-def save_to_db(data):
+def save_to_db(data, updated_at_str):
     if not data:
         return
 
-    stats = data.get("statistics", {})
+    conv_id = data.get("conversation_id")
+    stats = data.get("llm_statistics", {})
+    calls = data.get("llm_calls", [])
+    
     models = stats.get("models_used", [])
     in_tokens = stats.get("total_input_tokens", 0)
     out_tokens = stats.get("total_output_tokens", 0)
-
-    in_cost, out_cost, total_cost = calculate_cost(models, in_tokens, out_tokens)
+    total_cost = stats.get("total_cost_usd", 0.0)
+    duration = stats.get("total_duration_ms", 0)
+    user_id = "user_placeholder_123"
 
     with engine.begin() as conn:
-        # Create tables
         conn.execute(text("""
             CREATE TABLE IF NOT EXISTS api_sessions (
                 session_id VARCHAR(100) PRIMARY KEY,
-                status VARCHAR(50),
+                user_id VARCHAR(100),
                 total_calls INT,
                 total_input_tokens INT,
                 total_output_tokens INT,
                 total_duration_ms INT,
                 models_used TEXT,
-                input_cost_usd NUMERIC(12, 6),
-                output_cost_usd NUMERIC(12, 6),
-                total_cost_usd NUMERIC(12, 6)
+                total_cost_usd NUMERIC(12, 6),
+                updated_at TIMESTAMP
             );
             
             CREATE TABLE IF NOT EXISTS token_usage_history (
@@ -70,56 +63,107 @@ def save_to_db(data):
                 incremental_input_tokens INT,
                 incremental_output_tokens INT
             );
+
+            CREATE TABLE IF NOT EXISTS llm_calls (
+                call_id INT PRIMARY KEY,
+                session_id VARCHAR(100),
+                call_type VARCHAR(100),
+                model VARCHAR(100),
+                input_tokens INT,
+                output_tokens INT,
+                cost_usd NUMERIC(12, 6),
+                called_at TIMESTAMP
+            );
         """))
         
-        # Update or Insert session summary
         conn.execute(
             text("""
                 INSERT INTO api_sessions (
-                    session_id, status, total_calls, total_input_tokens, 
+                    session_id, user_id, total_calls, total_input_tokens, 
                     total_output_tokens, total_duration_ms, models_used, 
-                    input_cost_usd, output_cost_usd, total_cost_usd
+                    total_cost_usd, updated_at
                 ) VALUES (
-                    :session_id, :status, :total_calls, :in_tokens, 
-                    :out_tokens, :duration, :models, 
-                    :in_cost, :out_cost, :total_cost
+                    :session_id, :user_id, :total_calls, :in_tokens, 
+                    :out_tokens, :duration, :models, :total_cost, :updated_at
                 )
                 ON CONFLICT (session_id) DO UPDATE SET
-                    status = EXCLUDED.status,
                     total_calls = EXCLUDED.total_calls,
                     total_input_tokens = EXCLUDED.total_input_tokens,
                     total_output_tokens = EXCLUDED.total_output_tokens,
                     total_duration_ms = EXCLUDED.total_duration_ms,
-                    total_cost_usd = EXCLUDED.total_cost_usd;
+                    total_cost_usd = EXCLUDED.total_cost_usd,
+                    updated_at = EXCLUDED.updated_at;
             """),
             {
-                "session_id": data.get("session_id"),
-                "status": data.get("status"),
+                "session_id": conv_id,
+                "user_id": user_id,
                 "total_calls": stats.get("total_calls"),
                 "in_tokens": in_tokens,
                 "out_tokens": out_tokens,
-                "duration": stats.get("total_duration_ms"),
+                "duration": duration,
                 "models": ",".join(models),
-                "in_cost": in_cost,
-                "out_cost": out_cost,
-                "total_cost": total_cost
+                "total_cost": total_cost,
+                "updated_at": updated_at_str
             }
         )
 
-        # Record incremental usage in history table
         conn.execute(
             text("""
                 INSERT INTO token_usage_history (session_id, incremental_input_tokens, incremental_output_tokens)
                 VALUES (:session_id, :in_tokens, :out_tokens)
             """),
-            {
-                "session_id": data.get("session_id"),
-                "in_tokens": in_tokens,
-                "out_tokens": out_tokens
-            }
+            {"session_id": conv_id, "in_tokens": in_tokens, "out_tokens": out_tokens}
         )
 
+        for call in calls:
+            conn.execute(
+                text("""
+                    INSERT INTO llm_calls (
+                        call_id, session_id, call_type, model, 
+                        input_tokens, output_tokens, cost_usd, called_at
+                    ) VALUES (
+                        :cid, :sid, :ctype, :mod, :it, :ot, :cost, :dat
+                    ) ON CONFLICT (call_id) DO NOTHING;
+                """),
+                {
+                    "cid": call.get("id"),
+                    "sid": conv_id,
+                    "ctype": call.get("call_type"),
+                    "mod": call.get("llm_model"),
+                    "it": call.get("input_tokens"),
+                    "ot": call.get("output_tokens"),
+                    "cost": call.get("cost_usd"),
+                    "dat": call.get("called_at")
+                }
+            )
+
+def sync_conversations():
+    conversations = fetch_conversation_list()
+    if not conversations:
+        return
+
+    with engine.connect() as conn:
+        for conv in conversations:
+            conv_id = conv.get("conversation_id")
+            api_updated_at = conv.get("updated_at")
+
+            result = conn.execute(
+                text("SELECT updated_at FROM api_sessions WHERE session_id = :sid"),
+                {"sid": conv_id}
+            ).fetchone()
+
+            needs_fetch = False
+            if result is None:
+                needs_fetch = True
+            else:
+                db_updated_at = result[0].isoformat() if result[0] else ""
+                if api_updated_at[:26] != db_updated_at[:26]:
+                    needs_fetch = True
+
+            if needs_fetch:
+                detail_data = fetch_conversation_detail(conv_id)
+                if detail_data:
+                    save_to_db(detail_data, api_updated_at)
+
 if __name__ == "__main__":
-    data = fetch_data()
-    if data:
-        save_to_db(data)
+    sync_conversations()
