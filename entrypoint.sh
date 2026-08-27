@@ -1,8 +1,14 @@
-#!/bin/bash
+#!/bin/sh
+set -eu
 
-echo "Inizializzazione database con dati di test..."
+echo "Initializing the schema and optional demo data..."
 python seed_db.py
 
-echo "Database pronto. In attesa di Ofelia..."
+echo "Running the initial conversation synchronization..."
+if ! python fetch_and_update.py; then
+    echo "Initial synchronization failed; Ofelia will retry on schedule."
+fi
 
-tail -f /dev/null
+echo "Database ready. Ofelia will run the next scheduled synchronizations."
+
+exec tail -f /dev/null

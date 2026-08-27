@@ -1,0 +1,585 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "description": "Correlations among volume, cost, duration, and models in LLM conversations.",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "datasource": { "type": "postgres", "uid": "conversation-postgres" },
+      "description": "Conversations updated within the selected time range and filters.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 0 },
+      "id": 1,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "10.4.2",
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "conversation-postgres" },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT COUNT(*) AS conversations FROM conversation_metrics s WHERE $__timeFilter(s.updated_at) AND ('${status:raw}' = '__all' OR s.status = ${status:sqlstring}) AND ('${model:raw}' = '__all' OR EXISTS (SELECT 1 FROM llm_calls c WHERE c.conv_id = s.conv_id AND c.model = ${model:sqlstring}))",
+          "refId": "A"
+        }
+      ],
+      "title": "Conversations",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "conversation-postgres" },
+      "description": "Total number of LLM calls in the selected conversations.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "blue", "value": null }] },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 4, "x": 4, "y": 0 },
+      "id": 2,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "10.4.2",
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "conversation-postgres" },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT COALESCE(SUM(total_calls), 0) AS calls FROM conversation_metrics s WHERE $__timeFilter(s.updated_at) AND ('${status:raw}' = '__all' OR s.status = ${status:sqlstring}) AND ('${model:raw}' = '__all' OR EXISTS (SELECT 1 FROM llm_calls c WHERE c.conv_id = s.conv_id AND c.model = ${model:sqlstring}))",
+          "refId": "A"
+        }
+      ],
+      "title": "LLM calls",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "conversation-postgres" },
+      "description": "Sum of input and output tokens in the selected time range.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "purple", "value": null }] },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 4, "x": 8, "y": 0 },
+      "id": 3,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "10.4.2",
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "conversation-postgres" },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT COALESCE(SUM(total_tokens), 0) AS tokens FROM conversation_metrics s WHERE $__timeFilter(s.updated_at) AND ('${status:raw}' = '__all' OR s.status = ${status:sqlstring}) AND ('${model:raw}' = '__all' OR EXISTS (SELECT 1 FROM llm_calls c WHERE c.conv_id = s.conv_id AND c.model = ${model:sqlstring}))",
+          "refId": "A"
+        }
+      ],
+      "title": "Total tokens",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "conversation-postgres" },
+      "description": "Total cost reported by the API.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "decimals": 4,
+          "mappings": [],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "orange", "value": null }] },
+          "unit": "currencyUSD"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 4, "x": 12, "y": 0 },
+      "id": 4,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "10.4.2",
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "conversation-postgres" },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT COALESCE(SUM(total_cost_usd), 0) AS cost FROM conversation_metrics s WHERE $__timeFilter(s.updated_at) AND ('${status:raw}' = '__all' OR s.status = ${status:sqlstring}) AND ('${model:raw}' = '__all' OR EXISTS (SELECT 1 FROM llm_calls c WHERE c.conv_id = s.conv_id AND c.model = ${model:sqlstring}))",
+          "refId": "A"
+        }
+      ],
+      "title": "Total cost",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "conversation-postgres" },
+      "description": "Average total duration of a conversation.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "yellow", "value": null }] },
+          "unit": "ms"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 4, "x": 16, "y": 0 },
+      "id": 5,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "10.4.2",
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "conversation-postgres" },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT COALESCE(AVG(total_duration_ms), 0) AS duration FROM conversation_metrics s WHERE $__timeFilter(s.updated_at) AND ('${status:raw}' = '__all' OR s.status = ${status:sqlstring}) AND ('${model:raw}' = '__all' OR EXISTS (SELECT 1 FROM llm_calls c WHERE c.conv_id = s.conv_id AND c.model = ${model:sqlstring}))",
+          "refId": "A"
+        }
+      ],
+      "title": "Average duration",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "conversation-postgres" },
+      "description": "Average share of output tokens relative to input tokens.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "decimals": 1,
+          "mappings": [],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] },
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 4, "x": 20, "y": 0 },
+      "id": 6,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "10.4.2",
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "conversation-postgres" },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT COALESCE(AVG(output_input_ratio), 0) AS ratio FROM conversation_metrics s WHERE $__timeFilter(s.updated_at) AND ('${status:raw}' = '__all' OR s.status = ${status:sqlstring}) AND ('${model:raw}' = '__all' OR EXISTS (SELECT 1 FROM llm_calls c WHERE c.conv_id = s.conv_id AND c.model = ${model:sqlstring}))",
+          "refId": "A"
+        }
+      ],
+      "title": "Output/input ratio",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "conversation-postgres" },
+      "description": "Tokens actually added by each update; cumulative values are no longer counted more than once.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 18,
+            "gradientMode": "opacity",
+            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 4,
+            "scaleDistribution": { "type": "linear" },
+            "showPoints": "auto",
+            "spanNulls": true,
+            "stacking": { "group": "A", "mode": "normal" },
+            "thresholdsStyle": { "mode": "off" }
+          },
+          "mappings": [],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+      "id": 7,
+      "options": {
+        "legend": { "calcs": ["sum"], "displayMode": "table", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "conversation-postgres" },
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT $__timeGroupAlias(h.timestamp, $__interval), SUM(h.incremental_input_tokens)::double precision AS \"Input token\", SUM(h.incremental_output_tokens)::double precision AS \"Output token\" FROM token_usage_history h JOIN api_sessions s ON s.conv_id = h.conv_id WHERE $__timeFilter(h.timestamp) AND ('${status:raw}' = '__all' OR s.status = ${status:sqlstring}) AND ('${model:raw}' = '__all' OR EXISTS (SELECT 1 FROM llm_calls c WHERE c.conv_id = s.conv_id AND c.model = ${model:sqlstring})) GROUP BY 1 ORDER BY 1",
+          "refId": "A"
+        }
+      ],
+      "title": "Incremental tokens over time",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "conversation-postgres" },
+      "description": "Cost distribution of individual calls by model.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "decimals": 4,
+          "mappings": [],
+          "unit": "currencyUSD"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 6, "x": 12, "y": 4 },
+      "id": 8,
+      "options": {
+        "displayLabels": ["name", "percent"],
+        "legend": { "displayMode": "table", "placement": "bottom", "showLegend": true, "values": ["value", "percent"] },
+        "pieType": "donut",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": true },
+        "tooltip": { "mode": "single", "sort": "none" }
+      },
+      "pluginVersion": "10.4.2",
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "conversation-postgres" },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT COALESCE(c.model, 'unknown') AS model, SUM(c.cost_usd)::double precision AS cost FROM llm_calls c JOIN api_sessions s ON s.conv_id = c.conv_id WHERE $__timeFilter(c.called_at) AND ('${status:raw}' = '__all' OR s.status = ${status:sqlstring}) AND ('${model:raw}' = '__all' OR c.model = ${model:sqlstring}) GROUP BY 1 ORDER BY 2 DESC",
+          "refId": "A"
+        }
+      ],
+      "title": "Cost by model",
+      "type": "piechart"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "conversation-postgres" },
+      "description": "Average call duration by type; available when the API exposes duration_ms.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "continuous-BlYlRd" },
+          "custom": { "axisCenteredZero": false, "axisColorMode": "text", "axisLabel": "", "axisPlacement": "auto", "fillOpacity": 80, "gradientMode": "hue", "hideFrom": { "legend": false, "tooltip": false, "viz": false }, "lineWidth": 1, "scaleDistribution": { "type": "linear" }, "thresholdsStyle": { "mode": "off" } },
+          "mappings": [],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 6, "x": 18, "y": 4 },
+      "id": 9,
+      "options": {
+        "barRadius": 0,
+        "barWidth": 0.8,
+        "fullHighlight": false,
+        "groupWidth": 0.7,
+        "legend": { "calcs": [], "displayMode": "list", "placement": "bottom", "showLegend": false },
+        "orientation": "horizontal",
+        "showValue": "always",
+        "stacking": "none",
+        "tooltip": { "mode": "single", "sort": "none" },
+        "xTickLabelRotation": 0,
+        "xTickLabelSpacing": 0
+      },
+      "pluginVersion": "10.4.2",
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "conversation-postgres" },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT COALESCE(c.call_type, 'unknown') AS call_type, AVG(c.duration_ms)::double precision / 1000 AS avg_seconds FROM llm_calls c JOIN api_sessions s ON s.conv_id = c.conv_id WHERE c.duration_ms IS NOT NULL AND $__timeFilter(c.called_at) AND ('${status:raw}' = '__all' OR s.status = ${status:sqlstring}) AND ('${model:raw}' = '__all' OR c.model = ${model:sqlstring}) GROUP BY 1 ORDER BY 2 DESC",
+          "refId": "A"
+        }
+      ],
+      "title": "Latency by call type",
+      "type": "barchart"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "conversation-postgres" },
+      "description": "Each point is a conversation. The slope shows how much output is generated relative to the input context.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "hideFrom": { "legend": false, "tooltip": false, "viz": false }, "pointShape": "circle", "pointSize": 7, "show": "points" },
+          "mappings": [],
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 9, "w": 8, "x": 0, "y": 12 },
+      "id": 10,
+      "options": {
+        "legend": { "calcs": [], "displayMode": "list", "placement": "bottom", "showLegend": false },
+        "series": [],
+        "seriesMapping": "auto",
+        "tooltip": { "mode": "single", "sort": "none" }
+      },
+      "pluginVersion": "10.4.2",
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "conversation-postgres" },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT total_input_tokens::double precision AS \"Input token\", total_output_tokens::double precision AS \"Output token\" FROM conversation_metrics s WHERE $__timeFilter(s.updated_at) AND ('${status:raw}' = '__all' OR s.status = ${status:sqlstring}) AND ('${model:raw}' = '__all' OR EXISTS (SELECT 1 FROM llm_calls c WHERE c.conv_id = s.conv_id AND c.model = ${model:sqlstring})) ORDER BY total_input_tokens",
+          "refId": "A"
+        }
+      ],
+      "title": "Input ↔ output correlation",
+      "type": "xychart"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "conversation-postgres" },
+      "description": "Each point is a conversation, highlighting unusual cost for a comparable token count.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "hideFrom": { "legend": false, "tooltip": false, "viz": false }, "pointShape": "circle", "pointSize": 7, "show": "points" },
+          "mappings": []
+        },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "Cost (USD)" }, "properties": [{ "id": "unit", "value": "currencyUSD" }, { "id": "decimals", "value": 5 }] },
+          { "matcher": { "id": "byName", "options": "Total tokens" }, "properties": [{ "id": "unit", "value": "short" }] }
+        ]
+      },
+      "gridPos": { "h": 9, "w": 8, "x": 8, "y": 12 },
+      "id": 11,
+      "options": {
+        "legend": { "calcs": [], "displayMode": "list", "placement": "bottom", "showLegend": false },
+        "series": [],
+        "seriesMapping": "auto",
+        "tooltip": { "mode": "single", "sort": "none" }
+      },
+      "pluginVersion": "10.4.2",
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "conversation-postgres" },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT total_tokens::double precision AS \"Total tokens\", total_cost_usd::double precision AS \"Cost (USD)\" FROM conversation_metrics s WHERE $__timeFilter(s.updated_at) AND ('${status:raw}' = '__all' OR s.status = ${status:sqlstring}) AND ('${model:raw}' = '__all' OR EXISTS (SELECT 1 FROM llm_calls c WHERE c.conv_id = s.conv_id AND c.model = ${model:sqlstring})) ORDER BY total_tokens",
+          "refId": "A"
+        }
+      ],
+      "title": "Token ↔ cost correlation",
+      "type": "xychart"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "conversation-postgres" },
+      "description": "Pearson coefficient: +1 indicates a strong positive relationship, 0 no linear relationship, and -1 an inverse relationship.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "continuous-RdYlGr" },
+          "custom": { "axisCenteredZero": true, "axisColorMode": "text", "axisLabel": "Pearson r", "axisPlacement": "auto", "fillOpacity": 85, "gradientMode": "scheme", "hideFrom": { "legend": false, "tooltip": false, "viz": false }, "lineWidth": 1, "scaleDistribution": { "type": "linear" }, "thresholdsStyle": { "mode": "off" } },
+          "decimals": 2,
+          "mappings": [],
+          "max": 1,
+          "min": -1,
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "yellow", "value": 0 }, { "color": "green", "value": 0.7 }] }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 9, "w": 8, "x": 16, "y": 12 },
+      "id": 12,
+      "options": {
+        "barRadius": 0,
+        "barWidth": 0.8,
+        "fullHighlight": false,
+        "groupWidth": 0.7,
+        "legend": { "calcs": [], "displayMode": "list", "placement": "bottom", "showLegend": false },
+        "orientation": "horizontal",
+        "showValue": "always",
+        "stacking": "none",
+        "tooltip": { "mode": "single", "sort": "none" },
+        "xTickLabelRotation": 0,
+        "xTickLabelSpacing": 0
+      },
+      "pluginVersion": "10.4.2",
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "conversation-postgres" },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "WITH filtered AS (SELECT * FROM conversation_metrics s WHERE $__timeFilter(s.updated_at) AND ('${status:raw}' = '__all' OR s.status = ${status:sqlstring}) AND ('${model:raw}' = '__all' OR EXISTS (SELECT 1 FROM llm_calls c WHERE c.conv_id = s.conv_id AND c.model = ${model:sqlstring}))) SELECT 'Input ↔ output' AS relationship, COALESCE(CORR(total_input_tokens::double precision, total_output_tokens::double precision), 0) AS coefficient FROM filtered UNION ALL SELECT 'Tokens ↔ cost', COALESCE(CORR(total_tokens::double precision, total_cost_usd::double precision), 0) FROM filtered UNION ALL SELECT 'Calls ↔ duration', COALESCE(CORR(total_calls::double precision, total_duration_ms::double precision), 0) FROM filtered UNION ALL SELECT 'Calls ↔ tokens', COALESCE(CORR(total_calls::double precision, total_tokens::double precision), 0) FROM filtered UNION ALL SELECT 'Duration ↔ cost', COALESCE(CORR(total_duration_ms::double precision, total_cost_usd::double precision), 0) FROM filtered",
+          "refId": "A"
+        }
+      ],
+      "title": "Correlation strength",
+      "type": "barchart"
+    },
+    {
+      "datasource": { "type": "postgres", "uid": "conversation-postgres" },
+      "description": "Conversations sorted by cost per 1,000 tokens, useful for identifying outliers and inefficient models.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "custom": { "align": "auto", "cellOptions": { "type": "auto" }, "inspect": false },
+          "mappings": [],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 0.03 }] }
+        },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "Cost" }, "properties": [{ "id": "unit", "value": "currencyUSD" }, { "id": "decimals", "value": 5 }] },
+          { "matcher": { "id": "byName", "options": "Cost / 1k tokens" }, "properties": [{ "id": "unit", "value": "currencyUSD" }, { "id": "decimals", "value": 5 }, { "id": "custom.cellOptions", "value": { "mode": "gradient", "type": "color-background" } }] },
+          { "matcher": { "id": "byName", "options": "Average duration / call" }, "properties": [{ "id": "unit", "value": "ms" }] },
+          { "matcher": { "id": "byName", "options": "Token" }, "properties": [{ "id": "unit", "value": "short" }] }
+        ]
+      },
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 21 },
+      "id": 13,
+      "options": {
+        "cellHeight": "sm",
+        "footer": { "countRows": false, "fields": "", "reducer": ["sum"], "show": false },
+        "showHeader": true,
+        "sortBy": [{ "desc": true, "displayName": "Cost / 1k tokens" }]
+      },
+      "pluginVersion": "10.4.2",
+      "targets": [
+        {
+          "datasource": { "type": "postgres", "uid": "conversation-postgres" },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT conv_id AS \"Conversation\", status AS \"Status\", total_calls AS \"Calls\", total_tokens AS \"Tokens\", total_cost_usd::double precision AS \"Cost\", cost_per_1k_tokens AS \"Cost / 1k tokens\", avg_duration_ms_per_call AS \"Average duration / call\", models_used AS \"Models\", created_at AS \"Created at\", updated_at AS \"Last updated\" FROM conversation_metrics s WHERE $__timeFilter(s.updated_at) AND ('${status:raw}' = '__all' OR s.status = ${status:sqlstring}) AND ('${model:raw}' = '__all' OR EXISTS (SELECT 1 FROM llm_calls c WHERE c.conv_id = s.conv_id AND c.model = ${model:sqlstring})) ORDER BY cost_per_1k_tokens DESC NULLS LAST LIMIT 100",
+          "refId": "A"
+        }
+      ],
+      "title": "Conversations and efficiency outliers",
+      "type": "table"
+    }
+  ],
+  "refresh": "5m",
+  "schemaVersion": 39,
+  "tags": ["llm", "conversations", "correlation", "cost"],
+  "templating": {
+    "list": [
+      {
+        "allValue": "__all",
+        "current": { "selected": true, "text": "All", "value": "$__all" },
+        "datasource": { "type": "postgres", "uid": "conversation-postgres" },
+        "definition": "SELECT DISTINCT status AS __text, status AS __value FROM api_sessions WHERE status IS NOT NULL ORDER BY 1",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Status",
+        "multi": false,
+        "name": "status",
+        "options": [],
+        "query": "SELECT DISTINCT status AS __text, status AS __value FROM api_sessions WHERE status IS NOT NULL ORDER BY 1",
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "allValue": "__all",
+        "current": { "selected": true, "text": "All", "value": "$__all" },
+        "datasource": { "type": "postgres", "uid": "conversation-postgres" },
+        "definition": "SELECT DISTINCT model AS __text, model AS __value FROM llm_calls WHERE model IS NOT NULL ORDER BY 1",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Model",
+        "multi": false,
+        "name": "model",
+        "options": [],
+        "query": "SELECT DISTINCT model AS __text, model AS __value FROM llm_calls WHERE model IS NOT NULL ORDER BY 1",
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 1,
+        "type": "query"
+      }
+    ]
+  },
+  "time": { "from": "now-30d", "to": "now" },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Conversation Correlation Analytics",
+  "uid": "conversation-correlation",
+  "version": 1,
+  "weekStart": ""
+}

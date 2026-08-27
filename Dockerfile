@@ -7,6 +7,9 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+COPY database.py .
+COPY pricing.py .
+COPY model_pricing.json .
 COPY fetch_and_update.py .
 COPY seed_db.py .
 COPY entrypoint.sh .

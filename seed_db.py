@@ -1,178 +1,165 @@
+"""Initialize the schema and optionally add deterministic demo conversations."""
+
+from __future__ import annotations
+
+import logging
 import os
 import random
-import uuid
-from sqlalchemy import create_engine, text
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
+from typing import Any
 
-DB_URL = os.getenv("DATABASE_URL")
-engine = create_engine(DB_URL)
+from sqlalchemy import text
 
-def generate_fake_data(num_sessions=10):
-    call_types = ["question_generation", "report_generation", "topic_importance_extraction", "idq_c2_coherence"]
-    models = ["gpt-4.1-2025-04-14", "gpt-5.2-2025-12-11"]
-    conversations = []
-    
-    call_id_counter = random.randint(1000, 5000)
-    
-    for _ in range(num_sessions):
-        conv_id = f"conv_{uuid.uuid4().hex[:16]}"
-        user_id = f"user_{random.randint(100, 999)}"
-        updated_at = datetime.now().isoformat()
-        
-        num_calls = random.randint(2, 8)
-        total_in = 0
-        total_out = 0
+from database import create_db_engine, initialize_database, save_conversation
+
+
+LOGGER = logging.getLogger("database_seed")
+MODEL_PRICING_PER_MILLION = {
+    "gpt-4.1-2025-04-14": (2.0, 8.0),
+    "gpt-5.2-2025-12-11": (1.75, 14.0),
+    "gpt-4o-mini": (0.15, 0.60),
+}
+
+
+def _enabled(name: str, default: str = "false") -> bool:
+    return os.getenv(name, default).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def generate_fake_data(
+    num_sessions: int = 40,
+    *,
+    random_seed: int = 42,
+    now: datetime | None = None,
+) -> list[dict[str, Any]]:
+    """Create reproducible, time-distributed data with meaningful correlations."""
+    rng = random.Random(random_seed)
+    reference_time = now or datetime.now(timezone.utc)
+    users = [f"demo_user_{index}" for index in range(1, 7)]
+    call_types = (
+        "question_generation",
+        "report_generation",
+        "topic_importance_extraction",
+        "idq_c2_coherence",
+    )
+    models = tuple(MODEL_PRICING_PER_MILLION)
+    conversations: list[dict[str, Any]] = []
+
+    for session_number in range(1, num_sessions + 1):
+        conv_id = f"demo-conv-{session_number:04d}"
+        user_id = rng.choice(users)
+        updated_at = reference_time - timedelta(
+            days=rng.uniform(0, 29), hours=rng.uniform(0, 20)
+        )
+        created_at = updated_at - timedelta(minutes=rng.randint(5, 240))
+        status = rng.choices(
+            ("completed", "topic_exploration", "awaiting_confirmation"),
+            weights=(6, 2, 2),
+            k=1,
+        )[0]
+        num_calls = rng.randint(3, 16)
+        total_input = total_output = total_duration = 0
         total_cost = 0.0
-        total_duration = 0
-        mods_used = set()
-        calls = []
-        
-        for _ in range(num_calls):
-            mod = random.choice(models)
-            mods_used.add(mod)
-            c_type = random.choice(call_types)
-            c_in = random.randint(300, 4000)
-            c_out = random.randint(30, 800)
-            dur = random.randint(800, 5000)
-            
-            cost = (c_in * 0.005 / 1000) + (c_out * 0.015 / 1000)
-            
-            calls.append({
-                "id": call_id_counter,
-                "call_type": c_type,
-                "llm_model": mod,
-                "input_tokens": c_in,
-                "output_tokens": c_out,
-                "cost_usd": cost,
-                "called_at": datetime.utcnow().isoformat()
-            })
-            call_id_counter += 1
-            
-            total_in += c_in
-            total_out += c_out
-            total_cost += cost
-            total_duration += dur
-            
-        conversations.append({
-            "conversation_id": conv_id,
-            "user_id": user_id,
-            "updated_at": updated_at,
-            "llm_statistics": {
-                "total_calls": num_calls,
-                "total_input_tokens": total_in,
-                "total_output_tokens": total_out,
-                "total_duration_ms": total_duration,
-                "models_used": list(mods_used),
-                "total_cost_usd": total_cost
-            },
-            "llm_calls": calls
-        })
-        
-    return conversations
+        models_used: set[str] = set()
+        calls: list[dict[str, Any]] = []
 
-def run_seed():
-    data_list = generate_fake_data()
-    
-    with engine.begin() as conn:
-        conn.execute(text("""
-            CREATE TABLE IF NOT EXISTS api_sessions (
-                conv_id VARCHAR(100) PRIMARY KEY,
-                user_id VARCHAR(100),
-                total_calls INT,
-                total_input_tokens INT,
-                total_output_tokens INT,
-                total_duration_ms INT,
-                models_used TEXT,
-                total_cost_usd NUMERIC(12, 6),
-                updated_at TIMESTAMP
-            );
-            
-            CREATE TABLE IF NOT EXISTS token_usage_history (
-                id SERIAL PRIMARY KEY,
-                conv_id VARCHAR(100),
-                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                incremental_input_tokens INT,
-                incremental_output_tokens INT
-            );
+        for call_number in range(1, num_calls + 1):
+            model = rng.choices(models, weights=(4, 3, 2), k=1)[0]
+            call_type = rng.choice(call_types)
+            input_tokens = rng.randint(450, 5_500)
+            output_tokens = max(
+                20, int(input_tokens * rng.uniform(0.08, 0.38) + rng.randint(0, 250))
+            )
+            model_latency = 1.35 if model.startswith("gpt-5") else 1.0
+            duration_ms = int(
+                (500 + (input_tokens + output_tokens) * rng.uniform(0.28, 0.75))
+                * model_latency
+            )
+            input_rate, output_rate = MODEL_PRICING_PER_MILLION[model]
+            cost_usd = (
+                input_tokens * input_rate + output_tokens * output_rate
+            ) / 1_000_000
+            called_at = updated_at - timedelta(
+                minutes=(num_calls - call_number) * rng.randint(1, 8)
+            )
 
-            CREATE TABLE IF NOT EXISTS llm_calls (
-                call_id INT PRIMARY KEY,
-                conv_id VARCHAR(100),
-                call_type VARCHAR(100),
-                model VARCHAR(100),
-                input_tokens INT,
-                output_tokens INT,
-                cost_usd NUMERIC(12, 6),
-                called_at TIMESTAMP
-            );
-        """))
-
-        for data in data_list:
-            stats = data["llm_statistics"]
-            conv_id = data["conversation_id"]
-            user_id = data["user_id"]
-            updated_at_str = data["updated_at"]
-
-            conn.execute(
-                text("""
-                    INSERT INTO api_sessions (
-                        conv_id, user_id, total_calls, total_input_tokens, 
-                        total_output_tokens, total_duration_ms, models_used, 
-                        total_cost_usd, updated_at
-                    ) VALUES (
-                        :conv_id, :user_id, :total_calls, :in_tokens, 
-                        :out_tokens, :duration, :models, :total_cost, :updated_at
-                    )
-                    ON CONFLICT (conv_id) DO UPDATE SET
-                        total_calls = EXCLUDED.total_calls,
-                        total_input_tokens = EXCLUDED.total_input_tokens,
-                        total_output_tokens = EXCLUDED.total_output_tokens,
-                        total_duration_ms = EXCLUDED.total_duration_ms,
-                        total_cost_usd = EXCLUDED.total_cost_usd,
-                        updated_at = EXCLUDED.updated_at;
-                """),
+            calls.append(
                 {
-                    "conv_id": conv_id,
-                    "user_id": user_id,
-                    "total_calls": stats.get("total_calls"),
-                    "in_tokens": stats.get("total_input_tokens"),
-                    "out_tokens": stats.get("total_output_tokens"),
-                    "duration": stats.get("total_duration_ms"),
-                    "models": ",".join(stats.get("models_used", [])),
-                    "total_cost": stats.get("total_cost_usd"),
-                    "updated_at": updated_at_str
+                    "id": f"demo-call-{session_number:04d}-{call_number:03d}",
+                    "call_type": call_type,
+                    "llm_model": model,
+                    "input_tokens": input_tokens,
+                    "output_tokens": output_tokens,
+                    "cost_usd": cost_usd,
+                    "duration_ms": duration_ms,
+                    "called_at": called_at.isoformat(),
                 }
             )
+            models_used.add(model)
+            total_input += input_tokens
+            total_output += output_tokens
+            total_cost += cost_usd
+            total_duration += duration_ms
 
-            conn.execute(
-                text("""
-                    INSERT INTO token_usage_history (conv_id, incremental_input_tokens, incremental_output_tokens)
-                    VALUES (:conv_id, :in_tokens, :out_tokens)
-                """),
-                {"conv_id": conv_id, "in_tokens": stats.get("total_input_tokens"), "out_tokens": stats.get("total_output_tokens")}
+        conversations.append(
+            {
+                "conversation_id": conv_id,
+                "user_id": user_id,
+                "status": status,
+                "created_at": created_at.isoformat(),
+                "updated_at": updated_at.isoformat(),
+                "llm_statistics": {
+                    "total_calls": num_calls,
+                    "total_input_tokens": total_input,
+                    "total_output_tokens": total_output,
+                    "total_duration_ms": total_duration,
+                    "models_used": sorted(models_used),
+                    "total_cost_usd": total_cost,
+                },
+                "llm_calls": calls,
+            }
+        )
+
+    return conversations
+
+
+def run_seed() -> int:
+    engine = create_db_engine()
+    initialize_database(engine)
+
+    if not _enabled("SEED_DEMO_DATA", "true"):
+        LOGGER.info("Schema initialized; demo data disabled")
+        engine.dispose()
+        return 0
+
+    with engine.connect() as connection:
+        existing_rows = connection.execute(text("SELECT COUNT(*) FROM api_sessions")).scalar_one()
+
+    force_seed = _enabled("FORCE_SEED_DEMO_DATA")
+    if existing_rows and not force_seed:
+        LOGGER.info("Schema initialized; skipped demo data because the database is not empty")
+        engine.dispose()
+        return 0
+
+    count = max(int(os.getenv("DEMO_SESSION_COUNT", "40")), 1)
+    conversations = generate_fake_data(count)
+    try:
+        for conversation in conversations:
+            save_conversation(
+                engine,
+                conversation,
+                updated_at=conversation["updated_at"],
+                user_id=conversation["user_id"],
             )
+    finally:
+        engine.dispose()
 
-            for call in data.get("llm_calls", []):
-                conn.execute(
-                    text("""
-                        INSERT INTO llm_calls (
-                            call_id, conv_id, call_type, model, 
-                            input_tokens, output_tokens, cost_usd, called_at
-                        ) VALUES (
-                            :cid, :conv_id, :ctype, :mod, :it, :ot, :cost, :dat
-                        ) ON CONFLICT (call_id) DO NOTHING;
-                    """),
-                    {
-                        "cid": call.get("id"),
-                        "conv_id": conv_id,
-                        "ctype": call.get("call_type"),
-                        "mod": call.get("llm_model"),
-                        "it": call.get("input_tokens"),
-                        "ot": call.get("output_tokens"),
-                        "cost": call.get("cost_usd"),
-                        "dat": call.get("called_at")
-                    }
-                )
+    LOGGER.info("Inserted %s demo conversations", len(conversations))
+    return len(conversations)
+
 
 if __name__ == "__main__":
+    logging.basicConfig(
+        level=os.getenv("LOG_LEVEL", "INFO").upper(),
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    )
     run_seed()

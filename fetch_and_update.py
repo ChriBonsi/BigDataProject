@@ -1,169 +1,214 @@
+"""Synchronize conversation and LLM usage data from the upstream API."""
+
+from __future__ import annotations
+
+import logging
 import os
+from typing import Any, Iterator
+from urllib.parse import quote
+
 import requests
-from sqlalchemy import create_engine, text
-from datetime import datetime
+from requests.adapters import HTTPAdapter
+from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
+from urllib3.util.retry import Retry
 
-DB_URL = os.getenv("DATABASE_URL")
-API_BASE_URL = "http://34.241.168.124:8000/api/v1/"
-engine = create_engine(DB_URL)
+from database import (
+    create_db_engine,
+    initialize_database,
+    parse_optional_datetime,
+    save_conversation,
+)
 
-def fetch_conversation_list():
-    api_url = f"{API_BASE_URL}conversations?limit=50&offset=0"
+
+LOGGER = logging.getLogger("conversation_sync")
+API_BASE_URL = os.getenv(
+    "API_BASE_URL", "http://34.241.168.124:8000/api/v1"
+).rstrip("/")
+PAGE_SIZE = max(int(os.getenv("SYNC_PAGE_SIZE", "50")), 1)
+MAX_PAGES = max(int(os.getenv("SYNC_MAX_PAGES", "100")), 1)
+REQUEST_TIMEOUT_SECONDS = max(float(os.getenv("REQUEST_TIMEOUT_SECONDS", "15")), 1.0)
+
+
+def build_http_session() -> requests.Session:
+    retry = Retry(
+        total=3,
+        connect=3,
+        read=3,
+        backoff_factor=0.5,
+        status_forcelist=(429, 500, 502, 503, 504),
+        allowed_methods=("GET",),
+    )
+    session = requests.Session()
+    session.mount("http://", HTTPAdapter(max_retries=retry))
+    session.mount("https://", HTTPAdapter(max_retries=retry))
+    return session
+
+
+def _get_json(session: requests.Session, url: str, **kwargs: Any) -> dict[str, Any]:
+    response = session.get(url, timeout=REQUEST_TIMEOUT_SECONDS, **kwargs)
+    response.raise_for_status()
+    payload = response.json()
+    if not isinstance(payload, dict):
+        raise ValueError(f"Expected a JSON object from {url}")
+    return payload
+
+
+def iter_conversations(session: requests.Session) -> Iterator[dict[str, Any]]:
+    """Read every available page instead of stopping at the first 50 records."""
+    offset = 0
+    seen_ids: set[str] = set()
+    for page_number in range(MAX_PAGES):
+        payload = _get_json(
+            session,
+            f"{API_BASE_URL}/conversations",
+            params={"limit": PAGE_SIZE, "offset": offset},
+        )
+        conversations = payload.get("conversations") or []
+        if not isinstance(conversations, list):
+            raise ValueError("The conversations field must be a list")
+
+        new_records = 0
+        for conversation in conversations:
+            conv_id = conversation.get("conversation_id") or conversation.get("conv_id")
+            if conv_id is not None and str(conv_id) in seen_ids:
+                continue
+            if conv_id is not None:
+                seen_ids.add(str(conv_id))
+            new_records += 1
+            yield conversation
+
+        if not conversations:
+            break
+        if new_records == 0:
+            LOGGER.warning("Pagination returned no new conversations at offset=%s", offset)
+            break
+        offset += len(conversations)
+
+        try:
+            total = int(payload["total"]) if payload.get("total") is not None else None
+        except (TypeError, ValueError):
+            total = None
+        if total is not None and offset >= total:
+            break
+        if payload.get("has_more") is False:
+            break
+        if total is None and payload.get("has_more") is not True and len(conversations) < PAGE_SIZE:
+            break
+    else:
+        LOGGER.warning("Stopped pagination after SYNC_MAX_PAGES=%s", MAX_PAGES)
+
+
+def fetch_token_usage(
+    session: requests.Session, conversation_id: str
+) -> dict[str, Any]:
+    safe_id = quote(str(conversation_id), safe="")
+    payload = _get_json(
+        session, f"{API_BASE_URL}/conversation/{safe_id}/token-usage"
+    )
+    response_conversation_id = payload.get("conversation_id")
+    if response_conversation_id and str(response_conversation_id) != str(conversation_id):
+        raise ValueError(
+            "Token-usage response conversation_id does not match the requested conversation"
+        )
+    return payload
+
+
+def token_usage_needs_refresh(
+    stored_snapshot: tuple[Any, Any] | None, api_updated_at: Any
+) -> bool:
+    """Decide whether the token-usage endpoint must be fetched for a list item."""
+    if stored_snapshot is None:
+        return True
+
+    stored_updated_at, fetched_at = stored_snapshot
+    if fetched_at is None:
+        # Rows written by older collector versions have not been fetched from
+        # the dedicated token-usage endpoint yet.
+        return True
+
+    api_timestamp = parse_optional_datetime(api_updated_at)
+    if api_timestamp is None:
+        # Without an upstream version marker, fetch once and reuse the snapshot.
+        return False
+
+    return parse_optional_datetime(stored_updated_at) != api_timestamp
+
+
+def sync_conversations() -> tuple[int, int, int]:
+    """Synchronize changed records and return (seen, updated, failed)."""
+    engine = create_db_engine()
+    initialize_database(engine)
+    session = build_http_session()
+
+    seen = updated = failed = 0
     try:
-        response = requests.get(api_url)
-        if response.status_code == 200:
-            return response.json().get("conversations", [])
-    except Exception:
-        return []
-    return []
+        for conversation in iter_conversations(session):
+            seen += 1
+            conv_id = conversation.get("conversation_id") or conversation.get("conv_id")
+            if not conv_id:
+                failed += 1
+                LOGGER.warning("Skipping a conversation without conversation_id")
+                continue
 
-def fetch_conversation_detail(conversation_id):
-    api_url = f"{API_BASE_URL}conversations/{conversation_id}"
-    try:
-        response = requests.get(api_url)
-        if response.status_code == 200:
-            return response.json()
-    except Exception:
-        return None
-    return None
+            api_updated_at = conversation.get("updated_at")
+            with engine.connect() as connection:
+                stored_snapshot = connection.execute(
+                    text(
+                        """
+                        SELECT token_usage_updated_at, token_usage_fetched_at
+                        FROM api_sessions
+                        WHERE conv_id = :conv_id
+                        """
+                    ),
+                    {"conv_id": str(conv_id)},
+                ).fetchone()
 
-def save_to_db(data, updated_at_str, user_id):
-    if not data:
-        return
-
-    conv_id = data.get("conversation_id")
-    stats = data.get("llm_statistics", {})
-    calls = data.get("llm_calls", [])
-    
-    models = stats.get("models_used", [])
-    in_tokens = stats.get("total_input_tokens", 0)
-    out_tokens = stats.get("total_output_tokens", 0)
-    total_cost = stats.get("total_cost_usd", 0.0)
-    duration = stats.get("total_duration_ms", 0)
-
-    with engine.begin() as conn:
-        conn.execute(text("""
-            CREATE TABLE IF NOT EXISTS api_sessions (
-                conv_id VARCHAR(100) PRIMARY KEY,
-                user_id VARCHAR(100),
-                total_calls INT,
-                total_input_tokens INT,
-                total_output_tokens INT,
-                total_duration_ms INT,
-                models_used TEXT,
-                total_cost_usd NUMERIC(12, 6),
-                updated_at TIMESTAMP
-            );
-            
-            CREATE TABLE IF NOT EXISTS token_usage_history (
-                id SERIAL PRIMARY KEY,
-                conv_id VARCHAR(100),
-                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                incremental_input_tokens INT,
-                incremental_output_tokens INT
-            );
-
-            CREATE TABLE IF NOT EXISTS llm_calls (
-                call_id INT PRIMARY KEY,
-                conv_id VARCHAR(100),
-                call_type VARCHAR(100),
-                model VARCHAR(100),
-                input_tokens INT,
-                output_tokens INT,
-                cost_usd NUMERIC(12, 6),
-                called_at TIMESTAMP
-            );
-        """))
-        
-        conn.execute(
-            text("""
-                INSERT INTO api_sessions (
-                    conv_id, user_id, total_calls, total_input_tokens, 
-                    total_output_tokens, total_duration_ms, models_used, 
-                    total_cost_usd, updated_at
-                ) VALUES (
-                    :conv_id, :user_id, :total_calls, :in_tokens, 
-                    :out_tokens, :duration, :models, :total_cost, :updated_at
+            try:
+                needs_refresh = token_usage_needs_refresh(
+                    tuple(stored_snapshot) if stored_snapshot is not None else None,
+                    api_updated_at,
                 )
-                ON CONFLICT (conv_id) DO UPDATE SET
-                    total_calls = EXCLUDED.total_calls,
-                    total_input_tokens = EXCLUDED.total_input_tokens,
-                    total_output_tokens = EXCLUDED.total_output_tokens,
-                    total_duration_ms = EXCLUDED.total_duration_ms,
-                    total_cost_usd = EXCLUDED.total_cost_usd,
-                    updated_at = EXCLUDED.updated_at;
-            """),
-            {
-                "conv_id": conv_id,
-                "user_id": user_id,
-                "total_calls": stats.get("total_calls"),
-                "in_tokens": in_tokens,
-                "out_tokens": out_tokens,
-                "duration": duration,
-                "models": ",".join(models),
-                "total_cost": total_cost,
-                "updated_at": updated_at_str
-            }
-        )
+            except (TypeError, ValueError) as exc:
+                failed += 1
+                LOGGER.error("Invalid updated_at for %s: %s", conv_id, exc)
+                continue
 
-        conn.execute(
-            text("""
-                INSERT INTO token_usage_history (conv_id, incremental_input_tokens, incremental_output_tokens)
-                VALUES (:conv_id, :in_tokens, :out_tokens)
-            """),
-            {"conv_id": conv_id, "in_tokens": in_tokens, "out_tokens": out_tokens}
-        )
+            if not needs_refresh:
+                continue
 
-        for call in calls:
-            conn.execute(
-                text("""
-                    INSERT INTO llm_calls (
-                        call_id, conv_id, call_type, model, 
-                        input_tokens, output_tokens, cost_usd, called_at
-                    ) VALUES (
-                        :cid, :cid, :ctype, :mod, :it, :ot, :cost, :dat
-                    ) ON CONFLICT (call_id) DO NOTHING;
-                """),
-                {
-                    "cid": call.get("id"),
-                    "cid": conv_id,
-                    "ctype": call.get("call_type"),
-                    "mod": call.get("llm_model"),
-                    "it": call.get("input_tokens"),
-                    "ot": call.get("output_tokens"),
-                    "cost": call.get("cost_usd"),
-                    "dat": call.get("called_at")
-                }
-            )
+            try:
+                token_usage = fetch_token_usage(session, str(conv_id))
+                token_usage.setdefault("conversation_id", str(conv_id))
+                token_usage["status"] = conversation.get("status")
+                token_usage["created_at"] = conversation.get("created_at")
+                if api_updated_at is not None:
+                    token_usage["updated_at"] = api_updated_at
+                if save_conversation(
+                    engine,
+                    token_usage,
+                    updated_at=api_updated_at,
+                    user_id=conversation.get("user_id"),
+                ):
+                    updated += 1
+            except (requests.RequestException, SQLAlchemyError, ValueError, TypeError) as exc:
+                failed += 1
+                LOGGER.error("Failed to synchronize %s: %s", conv_id, exc)
+    finally:
+        session.close()
+        engine.dispose()
 
-def sync_conversations():
-    conversations = fetch_conversation_list()
-    if not conversations:
-        return
+    LOGGER.info("Sync complete: seen=%s updated=%s failed=%s", seen, updated, failed)
+    return seen, updated, failed
 
-    with engine.connect() as conn:
-        for conv in conversations:
-            user_id = conv.get("user_id", "Null")
-            conv_id = conv.get("conversation_id")
-            api_updated_at = conv.get("updated_at")
-
-            result = conn.execute(
-                text("SELECT updated_at FROM api_sessions WHERE conv_id = :cid"),
-                {"cid": conv_id}
-            ).fetchone()
-
-            needs_fetch = False
-            if result is None:
-                needs_fetch = True
-            else:
-                db_updated_at = result[0].isoformat() if result[0] else ""
-                if api_updated_at[:26] != db_updated_at[:26]:
-                    needs_fetch = True
-
-            if needs_fetch:
-                detail_data = fetch_conversation_detail(conv_id)
-                if detail_data:
-                    save_to_db(detail_data, api_updated_at, user_id)
 
 if __name__ == "__main__":
-    sync_conversations()
+    logging.basicConfig(
+        level=os.getenv("LOG_LEVEL", "INFO").upper(),
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    )
+    try:
+        sync_conversations()
+    except (requests.RequestException, SQLAlchemyError, ValueError, RuntimeError) as exc:
+        LOGGER.error("Synchronization aborted: %s", exc)
+        raise SystemExit(1) from exc

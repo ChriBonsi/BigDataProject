@@ -4,31 +4,40 @@ services:
     container_name: postgres_db
     restart: always
     environment:
-      POSTGRES_USER: user_admin
-      POSTGRES_PASSWORD: secret_password
-      POSTGRES_DB: api_data_db
+      POSTGRES_USER: ${POSTGRES_USER:-user_admin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-secret_password}
+      POSTGRES_DB: ${POSTGRES_DB:-api_data_db}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
-      - "5432:5432" 
+      - "${POSTGRES_PORT:-5432}:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U user_admin -d api_data_db"]
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
       timeout: 5s
-      retries: 5
+      retries: 10
+
   api_fetcher:
     build: .
     container_name: api_fetcher_app
     depends_on:
       db:
-        condition: service_healthy 
+        condition: service_healthy
     environment:
-      DATABASE_URL: postgresql://user_admin:secret_password@db:5432/api_data_db
+      DATABASE_URL: postgresql://${POSTGRES_USER:-user_admin}:${POSTGRES_PASSWORD:-secret_password}@db:5432/${POSTGRES_DB:-api_data_db}
+      API_BASE_URL: ${API_BASE_URL:-http://34.241.168.124:8000/api/v1}
+      SYNC_PAGE_SIZE: ${SYNC_PAGE_SIZE:-50}
+      SYNC_MAX_PAGES: ${SYNC_MAX_PAGES:-100}
+      REQUEST_TIMEOUT_SECONDS: ${REQUEST_TIMEOUT_SECONDS:-15}
+      SEED_DEMO_DATA: ${SEED_DEMO_DATA:-true}
+      DEMO_SESSION_COUNT: ${DEMO_SESSION_COUNT:-40}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
     labels:
       ofelia.enabled: "true"
-      ofelia.job-exec.api-fetcher.schedule: "@every 30m"
+      ofelia.job-exec.api-fetcher.schedule: "${SYNC_SCHEDULE:-@every 30m}"
       ofelia.job-exec.api-fetcher.command: "python fetch_and_update.py"
     restart: unless-stopped
+
   ofelia:
     image: mcuadros/ofelia:latest
     depends_on:
@@ -37,14 +46,28 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     restart: unless-stopped
+
   grafana:
     image: grafana/grafana-oss:10.4.2
     container_name: grafana_viz
     ports:
-      - "3000:3000"
+      - "${GRAFANA_PORT:-3000}:3000"
     depends_on:
-      - db
+      db:
+        condition: service_healthy
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      POSTGRES_USER: ${POSTGRES_USER:-user_admin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-secret_password}
+      POSTGRES_DB: ${POSTGRES_DB:-api_data_db}
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
     restart: unless-stopped
 
 volumes:
   postgres_data:
+  grafana_data:
