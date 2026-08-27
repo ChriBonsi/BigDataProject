@@ -57,9 +57,10 @@
       "targets": [
         {
           "datasource": { "type": "postgres", "uid": "conversation-postgres" },
+          "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT COUNT(*) AS conversations FROM conversation_metrics s WHERE $__timeFilter(s.updated_at) AND ('${status:raw}' = '__all' OR s.status = ${status:sqlstring}) AND ('${model:raw}' = '__all' OR EXISTS (SELECT 1 FROM llm_calls c WHERE c.conv_id = s.conv_id AND c.model = ${model:sqlstring}))",
+          "rawSql": "SELECT COUNT(*) AS conversations FROM conversation_metrics s WHERE $__timeFilter(s.updated_at) AND s.status IN (${status:sqlstring}) AND EXISTS (SELECT 1 FROM llm_calls c WHERE c.conv_id = s.conv_id AND c.model IN (${model:sqlstring}))",
           "refId": "A"
         }
       ],
@@ -95,9 +96,10 @@
       "targets": [
         {
           "datasource": { "type": "postgres", "uid": "conversation-postgres" },
+          "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT COALESCE(SUM(total_calls), 0) AS calls FROM conversation_metrics s WHERE $__timeFilter(s.updated_at) AND ('${status:raw}' = '__all' OR s.status = ${status:sqlstring}) AND ('${model:raw}' = '__all' OR EXISTS (SELECT 1 FROM llm_calls c WHERE c.conv_id = s.conv_id AND c.model = ${model:sqlstring}))",
+          "rawSql": "SELECT COALESCE(SUM(total_calls), 0) AS calls FROM conversation_metrics s WHERE $__timeFilter(s.updated_at) AND s.status IN (${status:sqlstring}) AND EXISTS (SELECT 1 FROM llm_calls c WHERE c.conv_id = s.conv_id AND c.model IN (${model:sqlstring}))",
           "refId": "A"
         }
       ],
@@ -133,9 +135,10 @@
       "targets": [
         {
           "datasource": { "type": "postgres", "uid": "conversation-postgres" },
+          "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT COALESCE(SUM(total_tokens), 0) AS tokens FROM conversation_metrics s WHERE $__timeFilter(s.updated_at) AND ('${status:raw}' = '__all' OR s.status = ${status:sqlstring}) AND ('${model:raw}' = '__all' OR EXISTS (SELECT 1 FROM llm_calls c WHERE c.conv_id = s.conv_id AND c.model = ${model:sqlstring}))",
+          "rawSql": "SELECT COALESCE(SUM(total_tokens), 0) AS tokens FROM conversation_metrics s WHERE $__timeFilter(s.updated_at) AND s.status IN (${status:sqlstring}) AND EXISTS (SELECT 1 FROM llm_calls c WHERE c.conv_id = s.conv_id AND c.model IN (${model:sqlstring}))",
           "refId": "A"
         }
       ],
@@ -172,9 +175,10 @@
       "targets": [
         {
           "datasource": { "type": "postgres", "uid": "conversation-postgres" },
+          "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT COALESCE(SUM(total_cost_usd), 0) AS cost FROM conversation_metrics s WHERE $__timeFilter(s.updated_at) AND ('${status:raw}' = '__all' OR s.status = ${status:sqlstring}) AND ('${model:raw}' = '__all' OR EXISTS (SELECT 1 FROM llm_calls c WHERE c.conv_id = s.conv_id AND c.model = ${model:sqlstring}))",
+          "rawSql": "SELECT COALESCE(SUM(total_cost_usd), 0) AS cost FROM conversation_metrics s WHERE $__timeFilter(s.updated_at) AND s.status IN (${status:sqlstring}) AND EXISTS (SELECT 1 FROM llm_calls c WHERE c.conv_id = s.conv_id AND c.model IN (${model:sqlstring}))",
           "refId": "A"
         }
       ],
@@ -210,9 +214,10 @@
       "targets": [
         {
           "datasource": { "type": "postgres", "uid": "conversation-postgres" },
+          "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT COALESCE(AVG(total_duration_ms), 0) AS duration FROM conversation_metrics s WHERE $__timeFilter(s.updated_at) AND ('${status:raw}' = '__all' OR s.status = ${status:sqlstring}) AND ('${model:raw}' = '__all' OR EXISTS (SELECT 1 FROM llm_calls c WHERE c.conv_id = s.conv_id AND c.model = ${model:sqlstring}))",
+          "rawSql": "SELECT COALESCE(AVG(total_duration_ms), 0) AS duration FROM conversation_metrics s WHERE $__timeFilter(s.updated_at) AND s.status IN (${status:sqlstring}) AND EXISTS (SELECT 1 FROM llm_calls c WHERE c.conv_id = s.conv_id AND c.model IN (${model:sqlstring}))",
           "refId": "A"
         }
       ],
@@ -249,9 +254,10 @@
       "targets": [
         {
           "datasource": { "type": "postgres", "uid": "conversation-postgres" },
+          "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT COALESCE(AVG(output_input_ratio), 0) AS ratio FROM conversation_metrics s WHERE $__timeFilter(s.updated_at) AND ('${status:raw}' = '__all' OR s.status = ${status:sqlstring}) AND ('${model:raw}' = '__all' OR EXISTS (SELECT 1 FROM llm_calls c WHERE c.conv_id = s.conv_id AND c.model = ${model:sqlstring}))",
+          "rawSql": "SELECT COALESCE(AVG(output_input_ratio), 0) AS ratio FROM conversation_metrics s WHERE $__timeFilter(s.updated_at) AND s.status IN (${status:sqlstring}) AND EXISTS (SELECT 1 FROM llm_calls c WHERE c.conv_id = s.conv_id AND c.model IN (${model:sqlstring}))",
           "refId": "A"
         }
       ],
@@ -298,9 +304,10 @@
       "targets": [
         {
           "datasource": { "type": "postgres", "uid": "conversation-postgres" },
+          "editorMode": "code",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT $__timeGroupAlias(h.timestamp, $__interval), SUM(h.incremental_input_tokens)::double precision AS \"Input token\", SUM(h.incremental_output_tokens)::double precision AS \"Output token\" FROM token_usage_history h JOIN api_sessions s ON s.conv_id = h.conv_id WHERE $__timeFilter(h.timestamp) AND ('${status:raw}' = '__all' OR s.status = ${status:sqlstring}) AND ('${model:raw}' = '__all' OR EXISTS (SELECT 1 FROM llm_calls c WHERE c.conv_id = s.conv_id AND c.model = ${model:sqlstring})) GROUP BY 1 ORDER BY 1",
+          "rawSql": "SELECT $__timeGroupAlias(h.timestamp, $__interval), SUM(h.incremental_input_tokens)::double precision AS \"Input token\", SUM(h.incremental_output_tokens)::double precision AS \"Output token\" FROM token_usage_history h JOIN api_sessions s ON s.conv_id = h.conv_id WHERE $__timeFilter(h.timestamp) AND s.status IN (${status:sqlstring}) AND EXISTS (SELECT 1 FROM llm_calls c WHERE c.conv_id = s.conv_id AND c.model IN (${model:sqlstring})) GROUP BY 1 ORDER BY 1",
           "refId": "A"
         }
       ],
@@ -332,9 +339,10 @@
       "targets": [
         {
           "datasource": { "type": "postgres", "uid": "conversation-postgres" },
+          "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT COALESCE(c.model, 'unknown') AS model, SUM(c.cost_usd)::double precision AS cost FROM llm_calls c JOIN api_sessions s ON s.conv_id = c.conv_id WHERE $__timeFilter(c.called_at) AND ('${status:raw}' = '__all' OR s.status = ${status:sqlstring}) AND ('${model:raw}' = '__all' OR c.model = ${model:sqlstring}) GROUP BY 1 ORDER BY 2 DESC",
+          "rawSql": "SELECT COALESCE(c.model, 'unknown') AS model, SUM(c.cost_usd)::double precision AS cost FROM llm_calls c JOIN api_sessions s ON s.conv_id = c.conv_id WHERE $__timeFilter(c.called_at) AND s.status IN (${status:sqlstring}) AND c.model IN (${model:sqlstring}) GROUP BY 1 ORDER BY 2 DESC",
           "refId": "A"
         }
       ],
@@ -373,9 +381,10 @@
       "targets": [
         {
           "datasource": { "type": "postgres", "uid": "conversation-postgres" },
+          "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT COALESCE(c.call_type, 'unknown') AS call_type, AVG(c.duration_ms)::double precision / 1000 AS avg_seconds FROM llm_calls c JOIN api_sessions s ON s.conv_id = c.conv_id WHERE c.duration_ms IS NOT NULL AND $__timeFilter(c.called_at) AND ('${status:raw}' = '__all' OR s.status = ${status:sqlstring}) AND ('${model:raw}' = '__all' OR c.model = ${model:sqlstring}) GROUP BY 1 ORDER BY 2 DESC",
+          "rawSql": "SELECT COALESCE(c.call_type, 'unknown') AS call_type, AVG(c.duration_ms)::double precision / 1000 AS avg_seconds FROM llm_calls c JOIN api_sessions s ON s.conv_id = c.conv_id WHERE c.duration_ms IS NOT NULL AND $__timeFilter(c.called_at) AND s.status IN (${status:sqlstring}) AND c.model IN (${model:sqlstring}) GROUP BY 1 ORDER BY 2 DESC",
           "refId": "A"
         }
       ],
@@ -406,9 +415,10 @@
       "targets": [
         {
           "datasource": { "type": "postgres", "uid": "conversation-postgres" },
+          "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT total_input_tokens::double precision AS \"Input token\", total_output_tokens::double precision AS \"Output token\" FROM conversation_metrics s WHERE $__timeFilter(s.updated_at) AND ('${status:raw}' = '__all' OR s.status = ${status:sqlstring}) AND ('${model:raw}' = '__all' OR EXISTS (SELECT 1 FROM llm_calls c WHERE c.conv_id = s.conv_id AND c.model = ${model:sqlstring})) ORDER BY total_input_tokens",
+          "rawSql": "SELECT total_input_tokens::double precision AS \"Input token\", total_output_tokens::double precision AS \"Output token\" FROM conversation_metrics s WHERE $__timeFilter(s.updated_at) AND s.status IN (${status:sqlstring}) AND EXISTS (SELECT 1 FROM llm_calls c WHERE c.conv_id = s.conv_id AND c.model IN (${model:sqlstring})) ORDER BY total_input_tokens",
           "refId": "A"
         }
       ],
@@ -441,9 +451,10 @@
       "targets": [
         {
           "datasource": { "type": "postgres", "uid": "conversation-postgres" },
+          "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT total_tokens::double precision AS \"Total tokens\", total_cost_usd::double precision AS \"Cost (USD)\" FROM conversation_metrics s WHERE $__timeFilter(s.updated_at) AND ('${status:raw}' = '__all' OR s.status = ${status:sqlstring}) AND ('${model:raw}' = '__all' OR EXISTS (SELECT 1 FROM llm_calls c WHERE c.conv_id = s.conv_id AND c.model = ${model:sqlstring})) ORDER BY total_tokens",
+          "rawSql": "SELECT total_tokens::double precision AS \"Total tokens\", total_cost_usd::double precision AS \"Cost (USD)\" FROM conversation_metrics s WHERE $__timeFilter(s.updated_at) AND s.status IN (${status:sqlstring}) AND EXISTS (SELECT 1 FROM llm_calls c WHERE c.conv_id = s.conv_id AND c.model IN (${model:sqlstring})) ORDER BY total_tokens",
           "refId": "A"
         }
       ],
@@ -484,9 +495,10 @@
       "targets": [
         {
           "datasource": { "type": "postgres", "uid": "conversation-postgres" },
+          "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "WITH filtered AS (SELECT * FROM conversation_metrics s WHERE $__timeFilter(s.updated_at) AND ('${status:raw}' = '__all' OR s.status = ${status:sqlstring}) AND ('${model:raw}' = '__all' OR EXISTS (SELECT 1 FROM llm_calls c WHERE c.conv_id = s.conv_id AND c.model = ${model:sqlstring}))) SELECT 'Input ↔ output' AS relationship, COALESCE(CORR(total_input_tokens::double precision, total_output_tokens::double precision), 0) AS coefficient FROM filtered UNION ALL SELECT 'Tokens ↔ cost', COALESCE(CORR(total_tokens::double precision, total_cost_usd::double precision), 0) FROM filtered UNION ALL SELECT 'Calls ↔ duration', COALESCE(CORR(total_calls::double precision, total_duration_ms::double precision), 0) FROM filtered UNION ALL SELECT 'Calls ↔ tokens', COALESCE(CORR(total_calls::double precision, total_tokens::double precision), 0) FROM filtered UNION ALL SELECT 'Duration ↔ cost', COALESCE(CORR(total_duration_ms::double precision, total_cost_usd::double precision), 0) FROM filtered",
+          "rawSql": "WITH filtered AS (SELECT * FROM conversation_metrics s WHERE $__timeFilter(s.updated_at) AND s.status IN (${status:sqlstring}) AND EXISTS (SELECT 1 FROM llm_calls c WHERE c.conv_id = s.conv_id AND c.model IN (${model:sqlstring}))) SELECT 'Input ↔ output' AS relationship, COALESCE(CORR(total_input_tokens::double precision, total_output_tokens::double precision), 0) AS coefficient FROM filtered UNION ALL SELECT 'Tokens ↔ cost', COALESCE(CORR(total_tokens::double precision, total_cost_usd::double precision), 0) FROM filtered UNION ALL SELECT 'Calls ↔ duration', COALESCE(CORR(total_calls::double precision, total_duration_ms::double precision), 0) FROM filtered UNION ALL SELECT 'Calls ↔ tokens', COALESCE(CORR(total_calls::double precision, total_tokens::double precision), 0) FROM filtered UNION ALL SELECT 'Duration ↔ cost', COALESCE(CORR(total_duration_ms::double precision, total_cost_usd::double precision), 0) FROM filtered",
           "refId": "A"
         }
       ],
@@ -522,9 +534,10 @@
       "targets": [
         {
           "datasource": { "type": "postgres", "uid": "conversation-postgres" },
+          "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT conv_id AS \"Conversation\", status AS \"Status\", total_calls AS \"Calls\", total_tokens AS \"Tokens\", total_cost_usd::double precision AS \"Cost\", cost_per_1k_tokens AS \"Cost / 1k tokens\", avg_duration_ms_per_call AS \"Average duration / call\", models_used AS \"Models\", created_at AS \"Created at\", updated_at AS \"Last updated\" FROM conversation_metrics s WHERE $__timeFilter(s.updated_at) AND ('${status:raw}' = '__all' OR s.status = ${status:sqlstring}) AND ('${model:raw}' = '__all' OR EXISTS (SELECT 1 FROM llm_calls c WHERE c.conv_id = s.conv_id AND c.model = ${model:sqlstring})) ORDER BY cost_per_1k_tokens DESC NULLS LAST LIMIT 100",
+          "rawSql": "SELECT conv_id AS \"Conversation\", status AS \"Status\", total_calls AS \"Calls\", total_tokens AS \"Tokens\", total_cost_usd::double precision AS \"Cost\", cost_per_1k_tokens AS \"Cost / 1k tokens\", avg_duration_ms_per_call AS \"Average duration / call\", models_used AS \"Models\", created_at AS \"Created at\", updated_at AS \"Last updated\" FROM conversation_metrics s WHERE $__timeFilter(s.updated_at) AND s.status IN (${status:sqlstring}) AND EXISTS (SELECT 1 FROM llm_calls c WHERE c.conv_id = s.conv_id AND c.model IN (${model:sqlstring})) ORDER BY cost_per_1k_tokens DESC NULLS LAST LIMIT 100",
           "refId": "A"
         }
       ],
@@ -538,14 +551,13 @@
   "templating": {
     "list": [
       {
-        "allValue": "__all",
         "current": { "selected": true, "text": "All", "value": "$__all" },
         "datasource": { "type": "postgres", "uid": "conversation-postgres" },
         "definition": "SELECT DISTINCT status AS __text, status AS __value FROM api_sessions WHERE status IS NOT NULL ORDER BY 1",
         "hide": 0,
         "includeAll": true,
         "label": "Status",
-        "multi": false,
+        "multi": true,
         "name": "status",
         "options": [],
         "query": "SELECT DISTINCT status AS __text, status AS __value FROM api_sessions WHERE status IS NOT NULL ORDER BY 1",
@@ -556,14 +568,13 @@
         "type": "query"
       },
       {
-        "allValue": "__all",
         "current": { "selected": true, "text": "All", "value": "$__all" },
         "datasource": { "type": "postgres", "uid": "conversation-postgres" },
         "definition": "SELECT DISTINCT model AS __text, model AS __value FROM llm_calls WHERE model IS NOT NULL ORDER BY 1",
         "hide": 0,
         "includeAll": true,
         "label": "Model",
-        "multi": false,
+        "multi": true,
         "name": "model",
         "options": [],
         "query": "SELECT DISTINCT model AS __text, model AS __value FROM llm_calls WHERE model IS NOT NULL ORDER BY 1",
@@ -580,6 +591,6 @@
   "timezone": "browser",
   "title": "Conversation Correlation Analytics",
   "uid": "conversation-correlation",
-  "version": 1,
+  "version": 3,
   "weekStart": ""
 }

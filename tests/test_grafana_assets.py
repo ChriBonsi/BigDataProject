@@ -19,9 +19,20 @@ class GrafanaAssetsTest(unittest.TestCase):
 
         variables = {item["name"] for item in dashboard["templating"]["list"]}
         self.assertEqual(variables, {"status", "model"})
+        self.assertTrue(all(item["multi"] for item in dashboard["templating"]["list"]))
+        self.assertTrue(
+            all("allValue" not in item for item in dashboard["templating"]["list"])
+        )
         self.assertFalse(
             any(
                 "${user" in target.get("rawSql", "")
+                for panel in panels
+                for target in panel.get("targets", [])
+            )
+        )
+        self.assertFalse(
+            any(
+                "__all" in target.get("rawSql", "")
                 for panel in panels
                 for target in panel.get("targets", [])
             )
@@ -33,6 +44,17 @@ class GrafanaAssetsTest(unittest.TestCase):
             if isinstance(panel.get("datasource"), dict)
         }
         self.assertEqual(datasource_uids, {"conversation-postgres"})
+
+        postgres_targets = [
+            target
+            for panel in panels
+            for target in panel.get("targets", [])
+            if target.get("datasource", {}).get("type") == "postgres"
+        ]
+        self.assertTrue(postgres_targets)
+        self.assertTrue(
+            all(target.get("editorMode") == "code" for target in postgres_targets)
+        )
 
 
 if __name__ == "__main__":
