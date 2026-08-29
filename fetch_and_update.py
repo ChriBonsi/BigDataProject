@@ -31,6 +31,7 @@ REQUEST_TIMEOUT_SECONDS = max(float(os.getenv("REQUEST_TIMEOUT_SECONDS", "15")),
 
 
 def build_http_session() -> requests.Session:
+    """Create an HTTP session with retry support."""
     retry = Retry(
         total=3,
         connect=3,
@@ -46,6 +47,7 @@ def build_http_session() -> requests.Session:
 
 
 def _get_json(session: requests.Session, url: str, **kwargs: Any) -> dict[str, Any]:
+    """Request and validate a JSON object."""
     response = session.get(url, timeout=REQUEST_TIMEOUT_SECONDS, **kwargs)
     response.raise_for_status()
     payload = response.json()
@@ -102,6 +104,7 @@ def iter_conversations(session: requests.Session) -> Iterator[dict[str, Any]]:
 def fetch_token_usage(
     session: requests.Session, conversation_id: str
 ) -> dict[str, Any]:
+    """Fetch token usage for one conversation."""
     safe_id = quote(str(conversation_id), safe="")
     payload = _get_json(
         session, f"{API_BASE_URL}/conversation/{safe_id}/token-usage"

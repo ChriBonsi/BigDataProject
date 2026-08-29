@@ -2,7 +2,8 @@ from fastapi import FastAPI
 
 app = FastAPI()
 
-# Health check endpoint
+
 @app.get("/")
 def read_root():
+    """Return the API health status."""
     return {"status": "ok", "message": "FastAPI is running"}

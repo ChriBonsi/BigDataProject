@@ -13,6 +13,7 @@ DEFAULT_PRICING_FILE = Path(__file__).with_name("model_pricing.json")
 
 
 def _catalog_entries(payload: dict[str, Any]):
+    """Yield model entries from every pricing category."""
     models = payload.get("models") or {}
     yield from models.get("standard_tier") or []
     specialized = models.get("specialized_and_tools") or {}

@@ -165,6 +165,7 @@ def token_increment(current: int, previous: int | None) -> int:
 
 
 def _as_non_negative_int(value: Any) -> int:
+    """Convert a value to a non-negative integer."""
     try:
         return max(int(value or 0), 0)
     except (TypeError, ValueError):
@@ -172,6 +173,7 @@ def _as_non_negative_int(value: Any) -> int:
 
 
 def _as_non_negative_float(value: Any) -> float:
+    """Convert a value to a non-negative float."""
     try:
         return max(float(value or 0), 0.0)
     except (TypeError, ValueError):
@@ -179,6 +181,7 @@ def _as_non_negative_float(value: Any) -> float:
 
 
 def _call_cost(call: Mapping[str, Any]) -> float:
+    """Return the reported or estimated cost of a call."""
     if call.get("cost_usd") is not None:
         return _as_non_negative_float(call.get("cost_usd"))
     return estimate_call_cost(

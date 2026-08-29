@@ -22,6 +22,7 @@ MODEL_PRICING_PER_MILLION = {
 
 
 def _enabled(name: str, default: str = "false") -> bool:
+    """Read a boolean option from the environment."""
     return os.getenv(name, default).strip().lower() in {"1", "true", "yes", "on"}
 
 
@@ -123,6 +124,7 @@ def generate_fake_data(
 
 
 def run_seed() -> int:
+    """Initialize the database and optionally insert demo data."""
     engine = create_db_engine()
     initialize_database(engine)
 

@@ -1,17 +1,85 @@
 # BigDataProject
 
-A local pipeline that collects LLM conversation statistics, stores them in PostgreSQL, and uses Grafana to analyze relationships among tokens, cost, duration, calls, users, and models.
+A local analytics pipeline for monitoring how Large Language Models (LLMs) are used across conversations.
 
-## Quick start
+## Project purpose
+
+The project collects conversation metadata and token-usage details from an upstream API, normalizes them, and stores them in PostgreSQL. Grafana then turns that data into a ready-to-use dashboard for studying relationships among:
+
+- input and output tokens;
+- estimated or reported cost;
+- call duration and number of calls;
+- conversation status, users, and models.
+
+Its main purpose is to make LLM usage patterns, costs, performance, correlations, and unusual conversations easier to identify. The complete stack runs locally and can also generate deterministic demo data, so the dashboard remains useful when the upstream API is unavailable or does not yet contain data.
+
+The stack contains four services:
+
+- **PostgreSQL** stores conversations, individual LLM calls, and token-usage history;
+- **the Python collector** fetches and incrementally updates data from the upstream API;
+- **Ofelia** schedules periodic synchronizations;
+- **Grafana** provides the provisioned analytics dashboard.
+
+## Dependencies
+
+The recommended setup only requires:
+
+- [Docker](https://docs.docker.com/get-docker/) with Docker Compose v2;
+- free local ports `3000` for Grafana and `5432` for PostgreSQL, unless they are changed in `.env`;
+
+Docker Desktop includes Docker Compose. On Linux, install Docker Engine and the Compose plugin by following the [official installation guide](https://docs.docker.com/engine/install/). Verify the installation with:
 
 ```bash
-cp .env.example .env
-docker compose up --build -d
+docker --version
+docker compose version
 ```
 
-Grafana is available at [http://localhost:3000](http://localhost:3000). The default development credentials are `admin` / `admin`; set `GRAFANA_ADMIN_PASSWORD` in `.env` for shared environments.
+Python, PostgreSQL, Grafana, and the Python packages do not need to be installed on the host for the normal containerized setup. Docker builds the collector image and installs the packages from `requirements.txt` automatically.
 
-On the first startup, the service:
+For optional local Python development, use Python 3.11 or later and install the packages in a virtual environment:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+```
+
+The Python dependencies are SQLAlchemy, the PostgreSQL driver `psycopg2`, and Requests. Running the collector directly also requires a reachable PostgreSQL instance and a valid `DATABASE_URL` environment variable.
+
+## Start up
+
+1. Clone the repository and enter its directory:
+
+   ```bash
+   git clone https://github.com/ChriBonsi/BigDataProject.git
+   cd BigDataProject
+   ```
+
+2. Create the local environment file:
+
+   ```bash
+   cp .env.example .env
+   ```
+
+   Review `.env` before starting. In particular, set secure PostgreSQL and Grafana passwords and change `API_BASE_URL` if a different upstream API must be used.
+
+3. Build and start the complete stack:
+
+   ```bash
+   docker compose up --build -d
+   ```
+
+4. Check that the services are running:
+
+   ```bash
+   docker compose ps
+   ```
+
+Grafana is available at [http://localhost:3000](http://localhost:3000). The default development credentials are `admin` / `change_me`.
+Change `GRAFANA_ADMIN_PASSWORD` in `.env` before using the project outside a local development environment.
+
+On the first startup, the stack:
 
 1. creates or upgrades the PostgreSQL schema;
 2. inserts 40 demo conversations only when the database is empty and `SEED_DEMO_DATA=true`;
@@ -19,6 +87,12 @@ On the first startup, the service:
 4. repeats the synchronization every 30 minutes through Ofelia.
 
 The **Conversation Correlation Analytics** dashboard and PostgreSQL data source are loaded automatically, so Grafana requires no manual setup.
+
+To stop the services without deleting the persisted PostgreSQL and Grafana data, run:
+
+```bash
+docker compose down
+```
 
 ## Upstream API contract
 
@@ -34,7 +108,7 @@ For each new or changed conversation, it reads token metrics from the dedicated 
 GET /api/v1/conversation/{conversation_id}/token-usage
 ```
 
-The `updated_at` value returned by the list endpoint is stored alongside the token-usage snapshot. The dedicated endpoint is called again only when that value changes. A conversation without `updated_at` is fetched once; subsequent runs reuse its stored snapshot because the API provides no version marker to compare.
+The `updated_at` value returned by the list endpoint is stored alongside the token-usage snapshot. The dedicated endpoint is called again only when that value changes. A conversation without `updated_at` is fetched once; subsequent runs reuse its stored snapshot because the API provides no version marker to compare it.
 
 The list endpoint's `status` and `created_at` fields are merged with `llm_statistics` and `llm_calls` from the token-usage response before persistence.
 
